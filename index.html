@@ -1,48 +1,186 @@
-{
-  "type": "Feature",
-  "properties": {
-    "pemilik": "Sri Hartati",
-    "status": "SHM",
-    "luas": "280 m2"
-  },
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[111.047, -7.636], [111.048, -7.636], [111.048, -7.637], [111.047, -7.637], [111.047, -7.636]]]
-  }
-},
-{
-  "type": "Feature",
-  "properties": {
-    "pemilik": "Darman",
-    "status": "SHGB",
-    "luas": "190 m2"
-  },
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[111.049, -7.635], [111.050, -7.635], [111.050, -7.636], [111.049, -7.636], [111.049, -7.635]]]
-  }
-},
-{
-  "type": "Feature",
-  "properties": {
-    "pemilik": "Lilis Kusuma",
-    "status": "SHM",
-    "luas": "350 m2"
-  },
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[111.051, -7.634], [111.052, -7.634], [111.052, -7.635], [111.051, -7.635], [111.051, -7.634]]]
-  }
-},
-{
-  "type": "Feature",
-  "properties": {
-    "pemilik": "Hadi Pranoto",
-    "status": "SHGB",
-    "luas": "220 m2"
-  },
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[111.053, -7.633], [111.054, -7.633], [111.054, -7.634], [111.053, -7.634], [111.053, -7.633]]]
-  }
-}
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WebGIS Data Pertanahan Kabupaten Karanganyar</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin:0; font-family:sans-serif; }
+    #map  { height: 75vh; }
+    #info {
+      padding: 8px 12px;
+      background: #fafafa;
+      overflow-y: auto;
+      border-top: 1px solid #ddd;
+      font-size: 14px;
+    }
+    .search-box {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    .search-box input { border: none; outline: none; width: 220px; }
+    .panel-tools {
+      padding: 8px 12px;
+      background: #f0f0f0;
+      border-top: 1px solid #ddd;
+      font-size: 14px;
+    }
+    button {
+      margin-right: 10px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="Cari nama pemilik…" />
+  </div>
+
+  <div id="map"></div>
+  <div class="panel-tools">
+    <button onclick="downloadGeoJSON()">💾 Unduh GeoJSON</button>
+    <button onclick="zoomToAll()">🔍 Zoom ke Semua Bidang</button>
+    <span id="statistik"></span>
+  </div>
+  <div id="info">Klik bidang tanah untuk melihat detail hak milik.</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([-7.636, 111.043], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const geojsonData = {
+      "type": "FeatureCollection",
+      "features": []
+    };
+
+    const dusunFilter = document.createElement('select');
+    dusunFilter.innerHTML = `
+      <option value="">Semua Dusun</option>
+      <option value="Dusun A">Dusun A</option>
+      <option value="Dusun B">Dusun B</option>
+    `;
+    dusunFilter.style.marginLeft = "10px";
+    dusunFilter.addEventListener('change', () => {
+      const selected = dusunFilter.value.toLowerCase();
+      layerSHM.clearLayers();
+      layerSHGB.clearLayers();
+      geojsonData.features.forEach(ft => {
+        const match = ft.properties.dusun?.toLowerCase().includes(selected);
+        if (match || selected === '') {
+          const lyr = L.geoJSON(ft, {
+            style: styleByStatus(ft.properties.status),
+            onEachFeature: bindFeatureEvents
+          });
+          (ft.properties.status === 'SHM' ? layerSHM : layerSHGB).addLayer(lyr);
+        }
+      });
+    });
+    document.querySelector('.panel-tools').appendChild(dusunFilter);
+
+    const layerSHM = L.layerGroup();
+    const layerSHGB = L.layerGroup();
+    const allBounds = [];
+    let totalSHM = 0;
+    let totalSHGB = 0;
+
+    function styleByStatus(status) {
+      return {
+        color: status === 'SHM' ? '#2E8B57' : '#FFA500',
+        weight: 1,
+        fillOpacity: 0.5
+      };
+    }
+
+    function bindFeatureEvents(feature, layer) {
+      layer.on('click', () => {
+        const p = feature.properties;
+        document.getElementById('info').innerHTML =
+          `<strong>Pemilik:</strong> ${p.pemilik}<br>`+
+          `<strong>Status:</strong> ${p.status}<br>`+
+          `<strong>Luas:</strong> ${p.luas}`;
+      });
+    }
+
+    function tambahBidang(pemilik, status, luas, coords, dusun = '') {
+      geojsonData.features.push({
+        "type": "Feature",
+        "properties": { pemilik, status, luas, dusun },
+        "geometry": { "type": "Polygon", "coordinates": [coords] }
+      });
+    }
+
+    tambahBidang("Sri Hartati", "SHM", "280 m2", [[111.047, -7.636], [111.048, -7.636], [111.048, -7.637], [111.047, -7.637], [111.047, -7.636]], "Dusun A");
+    tambahBidang("Darman", "SHGB", "190 m2", [[111.049, -7.635], [111.050, -7.635], [111.050, -7.636], [111.049, -7.636], [111.049, -7.635]], "Dusun A");
+    tambahBidang("Lilis Kusuma", "SHM", "350 m2", [[111.051, -7.634], [111.052, -7.634], [111.052, -7.635], [111.051, -7.635], [111.051, -7.634]], "Dusun B");
+    tambahBidang("Hadi Pranoto", "SHGB", "220 m2", [[111.053, -7.633], [111.054, -7.633], [111.054, -7.634], [111.053, -7.634], [111.053, -7.633]], "Dusun B");
+
+    geojsonData.features.forEach(ft => {
+      const lyr = L.geoJSON(ft, {
+        style: styleByStatus(ft.properties.status),
+        onEachFeature: bindFeatureEvents
+      });
+      const bounds = lyr.getBounds();
+      if (bounds.isValid()) allBounds.push(bounds);
+      if (ft.properties.status === 'SHM') {
+        layerSHM.addLayer(lyr);
+        totalSHM++;
+      } else {
+        layerSHGB.addLayer(lyr);
+        totalSHGB++;
+      }
+    });
+
+    layerSHM.addTo(map);
+    layerSHGB.addTo(map);
+    L.control.layers(null, { SHM: layerSHM, SHGB: layerSHGB }).addTo(map);
+    document.getElementById('statistik').innerText = `📊 SHM: ${totalSHM} | SHGB: ${totalSHGB}`;
+
+    const searchInput = document.getElementById('searchInput');
+    searchInput.addEventListener('keyup', () => {
+      const keyword = searchInput.value.toLowerCase();
+      layerSHM.clearLayers();
+      layerSHGB.clearLayers();
+      geojsonData.features.forEach(ft => {
+        const match = ft.properties.pemilik.toLowerCase().includes(keyword);
+        if (match || keyword === '') {
+          const lyr = L.geoJSON(ft, {
+            style: styleByStatus(ft.properties.status),
+            onEachFeature: bindFeatureEvents
+          });
+          (ft.properties.status === 'SHM' ? layerSHM : layerSHGB).addLayer(lyr);
+        }
+      });
+    });
+
+    function downloadGeoJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(geojsonData));
+      const link = document.createElement('a');
+      link.setAttribute("href", dataStr);
+      link.setAttribute("download", "data_pertanahan.geojson");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    function zoomToAll() {
+      if (allBounds.length) {
+        const fullBounds = allBounds.reduce((acc, b) => acc.extend(b), allBounds[0]);
+        map.fitBounds(fullBounds);
+      }
+    }
+  </script>
+</body>
+</html>
